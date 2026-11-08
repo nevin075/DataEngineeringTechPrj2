@@ -1,0 +1,29 @@
+{
+  "app_name_prefix": "data430_prj2",
+  "spark_conf": {
+    "spark.sql.shuffle.partitions": "16",
+    "spark.sql.adaptive.enabled": "true",
+    "spark.sql.adaptive.coalescePartitions.enabled": "true",
+    "spark.sql.adaptive.skewJoin.enabled": "true",
+    "spark.sql.autoBroadcastJoinThreshold": "20971520",
+    "spark.sql.session.timeZone": "UTC",
+    "spark.sql.legacy.timeParserPolicy": "CORRECTED",
+    "spark.sql.ansi.enabled": "false",
+    "spark.sql.parquet.outputTimestampType": "TIMESTAMP_MICROS",
+    "spark.sql.parquet.compression.codec": "snappy",
+    "spark.serializer": "org.apache.spark.serializer.KryoSerializer",
+    "spark.ui.showConsoleProgress": "false"
+  },
+  "cleanse": {
+    "min_valid_date": "2000-01-01",
+    "output_partitions": 4,
+    "valid_customer_types": ["Regular", "Premium", "VIP"],
+    "default_customer_type": "Regular",
+    "valid_order_statuses": ["Pending", "Shipped", "Delivered"],
+    "default_order_status": "Pending"
+  },
+  "analytics": {
+    "top_n_customers": 10,
+    "top_categories_per_customer_type": 3
+  }
+}

@@ -1,0 +1,30 @@
+# Secrets
+.env
+
+# Generated data and logs (keep the folder structure)
+data/**
+!data/raw/
+!data/cleaned/
+!data/raw/.gitkeep
+!data/cleaned/.gitkeep
+logs/**
+!logs/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# Spark / Hadoop side files
+*.crc
+spark-warehouse/
+metastore_db/
+derby.log
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

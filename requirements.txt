@@ -1,0 +1,16 @@
+# Python dependencies for the Airflow + Spark image (docker/Dockerfile).
+# Installed together with the official Airflow constraints file for
+# Airflow 2.10.5 / Python 3.10, so versions stay compatible with Airflow.
+apache-airflow==2.10.5
+apache-airflow-providers-postgres
+pyspark==3.5.4          # must match the Spark version of the master/worker (same image)
+pandas
+numpy
+pyarrow
+faker
+psycopg2-binary
+pyyaml
+
+# Bonus: exploratory notebook (docker compose --profile notebook up)
+jupyterlab
+matplotlib

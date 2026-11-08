@@ -1,0 +1,6 @@
+# Keep Linux line endings for everything that runs inside the containers,
+# even when the repo is cloned on Windows with core.autocrlf=true.
+* text=auto eol=lf
+*.ipynb text eol=lf
+*.png binary
+*.parquet binary

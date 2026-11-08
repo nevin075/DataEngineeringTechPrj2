@@ -1,0 +1,180 @@
+# DATA 430 - Project 2: Airflow orchestrating Spark, results in PostgreSQL.
+#
+#   docker compose build          # first time only (~5-10 min)
+#   docker compose up -d          # start everything
+#   open http://localhost:8080    # Airflow UI  (Spark master UI: http://localhost:8081)
+#
+# All credentials come from the .env file (copy .env.example -> .env).
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+  image: data430-prj2-airflow-spark:latest
+  env_file: .env
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${AIRFLOW_DB}
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__PARALLELISM: "4"
+    AIRFLOW__WEBSERVER__WORKERS: "2"
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "false"
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "30"
+    AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
+    # Where the DAG and the Python helpers find things inside the containers
+    PIPELINE_DATA_DIR: /opt/airflow/data
+    PIPELINE_SCRIPTS_DIR: /opt/airflow/scripts
+    PIPELINE_CONFIG_PATH: /opt/airflow/config/spark_config.json
+    PIPELINE_SCHEMA_PATH: /opt/airflow/sql/schema.sql
+    WAREHOUSE_HOST: postgres
+    WAREHOUSE_PORT: "5432"
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./scripts:/opt/airflow/scripts
+    - ./sql:/opt/airflow/sql
+    - ./config:/opt/airflow/config
+    - ./data:/opt/airflow/data
+    - ./logs:/opt/airflow/logs
+    - ./notebooks:/opt/airflow/notebooks
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on: &airflow-common-depends-on
+    postgres:
+      condition: service_healthy
+
+services:
+  # ------------------------------------------------------------------ PostgreSQL
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${AIRFLOW_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres:/docker-entrypoint-initdb.d:ro
+      - ./sql:/sql:ro
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${AIRFLOW_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------ Spark cluster
+  # Standalone cluster: 1 master + 1 worker. Both run the same image as Airflow so the
+  # driver (inside airflow-scheduler) and the executors use identical Spark/Python/Java.
+  spark-master:
+    <<: *airflow-common
+    hostname: spark-master
+    environment:
+      SPARK_NO_DAEMONIZE: "true"
+    entrypoint: ["/usr/bin/dumb-init", "--", "/bin/bash", "-c"]
+    command:
+      - spark-class org.apache.spark.deploy.master.Master --host spark-master --port 7077 --webui-port 8080
+    ports:
+      - "8081:8080"   # Spark master UI -> http://localhost:8081
+    depends_on: []
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080 > /dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  spark-worker:
+    <<: *airflow-common
+    hostname: spark-worker
+    environment:
+      SPARK_NO_DAEMONIZE: "true"
+      SPARK_WORKER_DIR: /tmp/spark-work
+    entrypoint: ["/usr/bin/dumb-init", "--", "/bin/bash", "-c"]
+    command:
+      - >-
+        spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+        --cores ${SPARK_WORKER_CORES:-2} --memory ${SPARK_WORKER_MEMORY:-2g} --webui-port 8081
+    ports:
+      - "8082:8081"   # Spark worker UI -> http://localhost:8082
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------ Airflow
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        mkdir -p /opt/airflow/logs /opt/airflow/data/raw /opt/airflow/data/cleaned
+        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/logs /opt/airflow/data || true
+        exec /entrypoint airflow version
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_ADMIN_USER}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD}
+    user: "0:0"
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"   # Airflow UI -> http://localhost:8080
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    # The scheduler runs the tasks (LocalExecutor), so it is also the spark-submit client
+    # and hosts the Spark driver. Driver UI while a job runs -> http://localhost:4040
+    hostname: airflow-scheduler
+    command: scheduler
+    ports:
+      - "4040-4041:4040-4041"   # two jobs can run at once (customers + products)
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    environment:
+      <<: *airflow-common-env
+      AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    restart: unless-stopped
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+      spark-master:
+        condition: service_healthy
+
+  # ------------------------------------------------------------------ Bonus: Jupyter
+  # Only starts with:  docker compose --profile notebook up -d   -> http://localhost:8888
+  jupyter:
+    <<: *airflow-common
+    profiles: ["notebook"]
+    entrypoint: ["/usr/bin/dumb-init", "--", "/bin/bash", "-c"]
+    command:
+      - jupyter lab --ip 0.0.0.0 --port 8888 --no-browser --ServerApp.token=$${JUPYTER_TOKEN} --notebook-dir /opt/airflow/notebooks
+    ports:
+      - "8888:8888"
+    depends_on: []
+
+volumes:
+  pgdata:

@@ -1,0 +1,29 @@
+{
+  "run_id": "20261107T150000",
+  "finished_at": "2026-11-07T17:55:32.381684+00:00",
+  "metrics": {
+    "customer_metrics": 99669,
+    "customer_type_distribution": 3,
+    "top_customers": 10,
+    "product_metrics": 99714,
+    "category_performance": 11,
+    "inventory_status": 2,
+    "sales_monthly": 30,
+    "sales_daily": 912,
+    "order_status_breakdown": 3,
+    "payment_method_distribution": 7,
+    "discount_summary": 1,
+    "revenue_by_customer_type": 3,
+    "top_categories_by_customer_type": 9,
+    "city_revenue": 46,
+    "brand_performance": 301,
+    "sales_by_weekday": 7,
+    "repeat_customers": 1
+  },
+  "kpis": {
+    "orders": 94356,
+    "net_revenue": 22925166.38,
+    "avg_order_value": 242.96,
+    "customers_with_orders": 41431
+  }
+}
